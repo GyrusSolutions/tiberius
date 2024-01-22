@@ -113,3 +113,47 @@ impl IntoIterator for ExecuteResult {
         self.rows_affected.into_iter()
     }
 }
+
+/// TODO: document SP result
+#[derive(Debug)]
+pub struct CommandResult {
+    rows_affected: Vec<u64>,
+    return_code: u32,
+}
+
+impl<'a> CommandResult {
+    pub(crate) async fn new<S: AsyncRead + AsyncWrite + Unpin + Send>(
+        connection: &'a mut Connection<S>,
+    ) -> crate::Result<Self> {
+        let mut token_stream = TokenStream::new(connection).try_unfold();
+        let mut rows_affected = Vec::new();
+        let mut return_code = 0_u32;
+
+        while let Some(token) = token_stream.try_next().await? {
+            match dbg!(token) {
+                ReceivedToken::ReturnStatus(status) => return_code = status,
+                ReceivedToken::DoneProc(done) if done.is_final() => (),
+                ReceivedToken::DoneProc(done) => rows_affected.push(done.rows()),
+                ReceivedToken::DoneInProc(done) => rows_affected.push(done.rows()),
+                ReceivedToken::Done(done) => rows_affected.push(done.rows()),
+                _ => (),
+            }
+        }
+
+        Ok(Self {
+            rows_affected,
+            return_code,
+        })
+    }
+
+    /// A slice of numbers of rows affected in the same order as the given
+    /// queries.
+    pub fn rows_affected(&self) -> &[u64] {
+        self.rows_affected.as_slice()
+    }
+
+    /// TODO: document Return code of the proc
+    pub fn return_code(&self) -> u32 {
+        self.return_code
+    }
+}

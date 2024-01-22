@@ -407,4 +407,24 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
 
         Ok(())
     }
+
+    pub(crate) async fn rpc_run_command<'a, 'b>(
+        &'a mut self,
+        command_name: Cow<'b, str>,
+        rpc_params: Vec<RpcParam<'b>>,
+    ) -> crate::Result<()>
+    where
+        'a: 'b,
+    {
+        let req = TokenRpcRequest::new(
+            command_name,
+            rpc_params,
+            self.connection.context().transaction_descriptor(),
+        );
+
+        let id = self.connection.context_mut().next_packet_id();
+        self.connection.send(PacketHeader::rpc(id), req).await?;
+
+        Ok(())
+    }
 }

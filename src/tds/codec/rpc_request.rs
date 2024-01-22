@@ -103,10 +103,18 @@ impl<'a> Encode<BytesMut> for TokenRpcRequest<'a> {
                 let val = (0xffff_u32) | ((*id as u16) as u32) << 16;
                 dst.put_u32_le(val);
             }
-            RpcProcIdValue::Name(ref _name) => {
-                //let (left_bytes, _) = try!(write_varchar::<u16>(&mut cursor, name, 0));
-                //assert_eq!(left_bytes, 0);
-                todo!()
+            RpcProcIdValue::Name(ref name) => {
+                let len_pos = dst.len();
+                dst.put_u16_le(0u16);
+                let mut length = 0_u16;
+
+                for chr in name.encode_utf16() {
+                    dst.put_u16_le(chr);
+                    length += 1;
+                }
+                let dst: &mut [u8] = dst.borrow_mut();
+                let mut dst = &mut dst[len_pos..];
+                dst.put_u16_le(length as u16);
             }
         }
 
