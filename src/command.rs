@@ -12,7 +12,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Command<'a> {
     name: Cow<'a, str>,
-    params: Vec<CommandParam<'a>>,
+    params: Vec<CommandParam<'a>>, // TODO: might make sense to check if param names are unique, but server would recject repeating params anyway
 }
 
 #[derive(Debug)]
@@ -59,7 +59,7 @@ impl<'a> Command<'a> {
     {
         client.connection.flush_stream().await?;
 
-        // 1-to-1 till TVP/output are coming
+        // still 1-to-1 till TVP are coming
         let rpc_params = self
             .params
             .into_iter()

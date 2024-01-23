@@ -1,8 +1,9 @@
 pub use crate::tds::stream::{QueryItem, ResultMetadata};
 use crate::{
     client::Connection,
+    error::Error,
     tds::stream::{ReceivedToken, TokenStream},
-    ColumnData,
+    ColumnData, FromSql,
 };
 use futures_util::io::{AsyncRead, AsyncWrite};
 use futures_util::stream::TryStreamExt;
@@ -115,15 +116,22 @@ impl IntoIterator for ExecuteResult {
     }
 }
 
-/// TODO: document SP result
 #[derive(Debug)]
-pub struct CommandResult<'a> {
-    rows_affected: Vec<u64>,
-    return_code: u32,
-    return_values: Vec<ColumnData<'a>>,
+struct ReturnValue {
+    name: String,
+    _ord: u16, // TODO: remove? do we need it?
+    data: ColumnData<'static>,
 }
 
-impl<'a> CommandResult<'a> {
+/// TODO: document SP result
+#[derive(Debug)]
+pub struct CommandResult {
+    rows_affected: Vec<u64>,
+    return_code: u32,
+    return_values: Vec<ReturnValue>,
+}
+
+impl<'a> CommandResult {
     pub(crate) async fn new<S: AsyncRead + AsyncWrite + Unpin + Send>(
         connection: &'a mut Connection<S>,
     ) -> crate::Result<Self> {
@@ -135,7 +143,11 @@ impl<'a> CommandResult<'a> {
         while let Some(token) = token_stream.try_next().await? {
             match dbg!(token) {
                 ReceivedToken::ReturnStatus(status) => return_code = status,
-                ReceivedToken::ReturnValue(rv) => return_values.push(rv.value),
+                ReceivedToken::ReturnValue(rv) => return_values.push(ReturnValue {
+                    name: rv.param_name,
+                    _ord: rv.param_ordinal,
+                    data: rv.value,
+                }),
                 ReceivedToken::DoneProc(done) if done.is_final() => (),
                 ReceivedToken::DoneProc(done) => rows_affected.push(done.rows()),
                 ReceivedToken::DoneInProc(done) => rows_affected.push(done.rows()),
@@ -160,5 +172,27 @@ impl<'a> CommandResult<'a> {
     /// TODO: document Return code of the proc
     pub fn return_code(&self) -> u32 {
         self.return_code
+    }
+
+    /// TODO: document the counter
+    pub fn return_values_len(&self) -> usize {
+        self.return_values.len()
+    }
+
+    /// TODO: document the accessor
+    pub fn try_return_value<T>(&'a self, name: &str) -> crate::Result<Option<T>>
+    where
+        T: FromSql<'a>,
+    {
+        let idx = self
+            .return_values
+            .iter()
+            .position(|p| p.name.eq(name))
+            .ok_or_else(|| {
+                Error::Conversion(format!("Could not find return value {}", name).into())
+            })?;
+        let col_data = self.return_values.get(idx).unwrap();
+
+        T::from_sql(&col_data.data)
     }
 }
