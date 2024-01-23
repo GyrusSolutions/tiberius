@@ -3,7 +3,10 @@ use std::borrow::Cow;
 use enumflags2::BitFlags;
 use futures_util::io::{AsyncRead, AsyncWrite};
 
-use crate::{tds::codec::RpcParam, Client, ColumnData, CommandResult, IntoSql};
+use crate::{
+    tds::codec::{RpcParam, RpcStatus::ByRefValue},
+    Client, ColumnData, CommandResult, IntoSql,
+};
 
 /// temporary encapsulation for the experimental stuff
 #[derive(Debug)]
@@ -15,7 +18,7 @@ pub struct Command<'a> {
 #[derive(Debug)]
 struct CommandParam<'a> {
     name: Cow<'a, str>,
-    _out: bool,
+    out: bool,
     data: ColumnData<'a>,
 }
 
@@ -32,7 +35,16 @@ impl<'a> Command<'a> {
     pub fn bind_param(&mut self, name: impl Into<Cow<'a, str>>, data: impl IntoSql<'a> + 'a) {
         self.params.push(CommandParam {
             name: name.into(),
-            _out: false,
+            out: false,
+            data: data.into_sql(),
+        });
+    }
+
+    /// TODO: document bind scalar param val
+    pub fn bind_out_param(&mut self, name: impl Into<Cow<'a, str>>, data: impl IntoSql<'a> + 'a) {
+        self.params.push(CommandParam {
+            name: name.into(),
+            out: true,
             data: data.into_sql(),
         });
     }
@@ -53,7 +65,11 @@ impl<'a> Command<'a> {
             .into_iter()
             .map(|p| RpcParam {
                 name: p.name,
-                flags: BitFlags::empty(),
+                flags: if p.out {
+                    BitFlags::from_flag(ByRefValue)
+                } else {
+                    BitFlags::empty()
+                },
                 value: p.data,
             })
             .collect();

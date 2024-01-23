@@ -2,6 +2,7 @@ pub use crate::tds::stream::{QueryItem, ResultMetadata};
 use crate::{
     client::Connection,
     tds::stream::{ReceivedToken, TokenStream},
+    ColumnData,
 };
 use futures_util::io::{AsyncRead, AsyncWrite};
 use futures_util::stream::TryStreamExt;
@@ -116,22 +117,25 @@ impl IntoIterator for ExecuteResult {
 
 /// TODO: document SP result
 #[derive(Debug)]
-pub struct CommandResult {
+pub struct CommandResult<'a> {
     rows_affected: Vec<u64>,
     return_code: u32,
+    return_values: Vec<ColumnData<'a>>,
 }
 
-impl<'a> CommandResult {
+impl<'a> CommandResult<'a> {
     pub(crate) async fn new<S: AsyncRead + AsyncWrite + Unpin + Send>(
         connection: &'a mut Connection<S>,
     ) -> crate::Result<Self> {
         let mut token_stream = TokenStream::new(connection).try_unfold();
         let mut rows_affected = Vec::new();
         let mut return_code = 0_u32;
+        let mut return_values = Vec::new();
 
         while let Some(token) = token_stream.try_next().await? {
             match dbg!(token) {
                 ReceivedToken::ReturnStatus(status) => return_code = status,
+                ReceivedToken::ReturnValue(rv) => return_values.push(rv.value),
                 ReceivedToken::DoneProc(done) if done.is_final() => (),
                 ReceivedToken::DoneProc(done) => rows_affected.push(done.rows()),
                 ReceivedToken::DoneInProc(done) => rows_affected.push(done.rows()),
@@ -143,6 +147,7 @@ impl<'a> CommandResult {
         Ok(Self {
             rows_affected,
             return_code,
+            return_values,
         })
     }
 
