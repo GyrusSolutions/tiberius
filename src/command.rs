@@ -4,7 +4,7 @@ use enumflags2::BitFlags;
 use futures_util::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    tds::codec::{RpcParam, RpcStatus::ByRefValue},
+    tds::codec::{RpcParam, RpcStatus::ByRefValue, RpcValue},
     Client, ColumnData, CommandResult, IntoSql,
 };
 
@@ -70,7 +70,7 @@ impl<'a> Command<'a> {
                 } else {
                     BitFlags::empty()
                 },
-                value: p.data,
+                value: RpcValue::Scalar(p.data),
             })
             .collect();
 

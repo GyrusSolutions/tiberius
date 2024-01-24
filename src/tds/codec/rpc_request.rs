@@ -1,3 +1,4 @@
+use super::TypeInfoTvp;
 use super::{AllHeaderTy, Encode, ALL_HEADERS_LEN_TX};
 use crate::{tds::codec::ColumnData, BytesMutWithTypeInfo, Result};
 use bytes::{BufMut, BytesMut};
@@ -47,10 +48,17 @@ impl<'a> TokenRpcRequest<'a> {
 }
 
 #[derive(Debug)]
+pub enum RpcValue<'a> {
+    Scalar(ColumnData<'a>),
+    Table(TypeInfoTvp<'a>), // as per grammar, TYPE_INFO_TVP contains data rows (looks quite odd)
+}
+
+#[derive(Debug)]
 pub struct RpcParam<'a> {
     pub name: Cow<'a, str>,
     pub flags: BitFlags<RpcStatus>,
-    pub value: ColumnData<'a>,
+    // pub value: ColumnData<'a>,
+    pub value: RpcValue<'a>,
 }
 
 /// 2.2.6.6 RPC Request
@@ -142,11 +150,16 @@ impl<'a> Encode<BytesMut> for RpcParam<'a> {
 
         dst.put_u8(self.flags.bits());
 
-        let mut dst_fi = BytesMutWithTypeInfo::new(dst);
-        self.value.encode(&mut dst_fi)?;
+        match self.value {
+            RpcValue::Scalar(value) => {
+                let mut dst_fi = BytesMutWithTypeInfo::new(dst);
+                value.encode(&mut dst_fi)?;
 
-        let dst: &mut [u8] = dst.borrow_mut();
-        dst[len_pos] = length;
+                let dst: &mut [u8] = dst.borrow_mut();
+                dst[len_pos] = length;
+            }
+            RpcValue::Table(value) => value.encode(dst)?,
+        }
 
         Ok(())
     }

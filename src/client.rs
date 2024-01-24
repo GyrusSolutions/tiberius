@@ -14,6 +14,7 @@ pub use auth::*;
 pub use config::*;
 pub(crate) use connection::*;
 
+use crate::tds::codec::RpcValue;
 use crate::tds::stream::ReceivedToken;
 use crate::{
     result::ExecuteResult,
@@ -357,12 +358,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
             RpcParam {
                 name: Cow::Borrowed("stmt"),
                 flags: BitFlags::empty(),
-                value: ColumnData::String(Some(query.into())),
+                value: RpcValue::Scalar(ColumnData::String(Some(query.into()))),
             },
             RpcParam {
                 name: Cow::Borrowed("params"),
                 flags: BitFlags::empty(),
-                value: ColumnData::I32(Some(0)),
+                value: RpcValue::Scalar(ColumnData::I32(Some(0))),
             },
         ]
     }
@@ -388,12 +389,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
             rpc_params.push(RpcParam {
                 name: Cow::Owned(format!("@P{}", i + 1)),
                 flags: BitFlags::empty(),
-                value: param,
+                value: RpcValue::Scalar(param), // for compat purposes, review later
             });
         }
 
         if let Some(params) = rpc_params.iter_mut().find(|x| x.name == "params") {
-            params.value = ColumnData::String(Some(param_str.into()));
+            params.value = RpcValue::Scalar(ColumnData::String(Some(param_str.into())));
         }
 
         let req = TokenRpcRequest::new(

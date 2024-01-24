@@ -7,9 +7,10 @@ use super::{Encode, MetaDataColumn};
 
 const TVPTYPE: u8 = 0xF3;
 
+#[derive(Debug)]
 pub struct TypeInfoTvp<'a> {
     scheema_name: Cow<'a, str>,
-    type_name: Cow<'a, str>,
+    db_type_name: Cow<'a, str>,
     columns: Option<Vec<MetaDataColumn<'a>>>,
 }
 
@@ -26,7 +27,7 @@ impl<'a> Encode<BytesMut> for TypeInfoTvp<'a> {
         dst.put_u8(TVPTYPE);
         put_b_varchar("", dst); // DB name
         put_b_varchar(self.scheema_name, dst);
-        put_b_varchar(self.type_name, dst);
+        put_b_varchar(self.db_type_name, dst);
 
         if let Some(columns_metadata) = self.columns {
             dst.put_u16_le(columns_metadata.len() as u16);
@@ -74,4 +75,6 @@ fn put_b_varchar<T: AsRef<str>>(s: T, dst: &mut BytesMut) {
     dst[len_pos] = length;
 }
 
-impl<'a> TypeInfoTvp<'a> {}
+impl<'a> TypeInfoTvp<'a> {
+    // TODO: funny part. get column metadata and data for the encoder
+}
