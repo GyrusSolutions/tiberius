@@ -8,6 +8,42 @@ use crate::{
     Client, ColumnData, CommandResult, IntoSql,
 };
 
+/// expected from a structure that represents a row, Derive macro to come
+/// but actually it would make sense to pass &mut Command or &mut Param; looks overengineered
+pub trait TableValueRow<'a, B>
+where
+    B: SqlValBound<'a> + 'a,
+{
+    fn bind_fields(&self, sql: &mut B);
+    fn get_db_type() -> &'static str;
+}
+
+pub trait SqlValBound<'a> {
+    fn bind(&mut self, val: impl IntoSql<'a> + 'a);
+}
+
+pub trait TableValue<'a> {
+    fn bind_rows(self, sql: &mut Vec<SqlTableDataRow<'a>>);
+    fn get_db_type(&self) -> &'static str;
+}
+
+impl<'a, R, C> TableValue<'a> for C
+where
+    R: TableValueRow<'a, SqlTableDataRow<'a>> + 'a,
+    C: IntoIterator<Item = R>,
+{
+    fn bind_rows(self, sql: &mut Vec<SqlTableDataRow<'a>>) {
+        for r in self.into_iter() {
+            let mut sql_row = SqlTableDataRow(Vec::new());
+            r.bind_fields(&mut sql_row);
+            sql.push(sql_row);
+        }
+    }
+    fn get_db_type(&self) -> &'static str {
+        R::get_db_type()
+    }
+}
+
 /// temporary encapsulation for the experimental stuff
 #[derive(Debug)]
 pub struct Command<'a> {
@@ -19,7 +55,33 @@ pub struct Command<'a> {
 struct CommandParam<'a> {
     name: Cow<'a, str>,
     out: bool,
-    data: ColumnData<'a>,
+    data: CommandParamData<'a>, //ColumnData<'a>,
+}
+
+#[derive(Debug)]
+enum CommandParamData<'a> {
+    Scalar(ColumnData<'a>),
+    Table(SqlTableData<'a>),
+}
+
+#[derive(Debug)]
+pub struct SqlTableData<'a> {
+    rows: Vec<SqlTableDataRow<'a>>,
+    db_type: &'static str,
+}
+
+#[derive(Debug)]
+pub struct SqlTableDataRow<'a>(Vec<ColumnData<'a>>);
+impl<'a> SqlTableDataRow<'a> {
+    pub fn add_field(&mut self, data: impl IntoSql<'a> + 'a) {
+        self.0.push(data.into_sql());
+    }
+}
+
+impl<'a> SqlValBound<'a> for SqlTableDataRow<'a> {
+    fn bind(&mut self, val: impl IntoSql<'a> + 'a) {
+        self.add_field(val);
+    }
 }
 
 impl<'a> Command<'a> {
@@ -36,7 +98,7 @@ impl<'a> Command<'a> {
         self.params.push(CommandParam {
             name: name.into(),
             out: false,
-            data: data.into_sql(),
+            data: CommandParamData::Scalar(data.into_sql()),
         });
     }
 
@@ -45,7 +107,21 @@ impl<'a> Command<'a> {
         self.params.push(CommandParam {
             name: name.into(),
             out: true,
-            data: data.into_sql(),
+            data: CommandParamData::Scalar(data.into_sql()),
+        });
+    }
+
+    /// TODO: document bind table param val
+    pub fn bind_table(&mut self, name: impl Into<Cow<'a, str>>, data: impl TableValue<'a> + 'a) {
+        let mut rows = SqlTableData {
+            rows: Vec::new(),
+            db_type: data.get_db_type(),
+        };
+        data.bind_rows(&mut rows.rows);
+        self.params.push(CommandParam {
+            name: name.into(),
+            out: false,
+            data: CommandParamData::Table(rows),
         });
     }
 
@@ -70,7 +146,10 @@ impl<'a> Command<'a> {
                 } else {
                     BitFlags::empty()
                 },
-                value: RpcValue::Scalar(p.data),
+                value: match p.data {
+                    CommandParamData::Scalar(col) => RpcValue::Scalar(col),
+                    CommandParamData::Table(_) => todo!(),
+                },
             })
             .collect();
 
@@ -79,3 +158,4 @@ impl<'a> Command<'a> {
         CommandResult::new(&mut client.connection).await
     }
 }
+
