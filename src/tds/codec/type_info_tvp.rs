@@ -5,7 +5,7 @@ use bytes::BufMut;
 
 use crate::ColumnData;
 
-use super::{BytesMutWithTypeInfo, Encode, MetaDataColumn};
+use super::{BytesMutWithTypeInfo, Encode, FixedLenType, MetaDataColumn, TypeInfo, VarLenContext};
 
 const TVPTYPE: u8 = 0xF3;
 
@@ -32,7 +32,7 @@ impl<'a> Encode<BytesMut> for TypeInfoTvp<'a> {
         put_b_varchar(self.scheema_name, dst);
         put_b_varchar(self.db_type_name, dst);
 
-        if let Some(columns_metadata) = self.columns {
+        if let Some(columns_metadata) = self.columns.clone() {
             dst.put_u16_le(columns_metadata.len() as u16);
             for col in columns_metadata {
                 // TvpColumnMetaData = UserType
@@ -40,8 +40,7 @@ impl<'a> Encode<BytesMut> for TypeInfoTvp<'a> {
                 //                     TYPE_INFO
                 //                     ColName ; Column metadata instance
                 dst.put_u32_le(0_u32);
-                dst.put_u16_le(col.base.flags.bits());
-                col.base.encode(dst)?;
+                dbg!(col.base).encode(dst)?;
                 put_b_varchar("", dst);
                 // put_b_varchar(col.col_name, dst);
             }
@@ -50,14 +49,15 @@ impl<'a> Encode<BytesMut> for TypeInfoTvp<'a> {
         }
 
         dst.put_u8(0_u8); // TVP_END_TOKEN
+        dbg!(&dst);
 
         for row in self.data.into_iter() {
             dst.put_u8(0x01u8); // TVP_ROW_TOKEN = %x01
-            for (_i, col) in row.into_iter().enumerate() {
+            for (i, col) in row.into_iter().enumerate() {
                 let mut dst_ti = BytesMutWithTypeInfo::new(dst);
-                // if let Some(ref metadata) = self.columns {
-                //     dst_ti = dst_ti.with_type_info(&metadata[i].base.ty);
-                // }
+                if let Some(ref metadata) = self.columns {
+                    dst_ti = dst_ti.with_type_info(&metadata[i].base.ty);
+                }
                 col.encode(&mut dst_ti)?;
             }
         }
@@ -69,8 +69,6 @@ impl<'a> Encode<BytesMut> for TypeInfoTvp<'a> {
         //                 AllColumnData
 
         dst.put_u8(0_u8); // TVP_END_TOKEN
-
-        dbg!(dst);
 
         Ok(())
     }
@@ -105,6 +103,15 @@ impl<'a> TypeInfoTvp<'a> {
     }
 
     pub fn with_metadata(self, metadata: Vec<MetaDataColumn<'a>>) -> TypeInfoTvp<'_> {
+        let mut metadata = metadata;
+        for mdc in metadata.iter_mut() {
+            if let TypeInfo::FixedLen(t) = mdc.base.ty {
+                if t == FixedLenType::Int4 {
+                    mdc.base.ty =
+                        TypeInfo::VarLenSized(VarLenContext::new(super::VarLenType::Intn, 4, None));
+                }
+            }
+        }
         TypeInfoTvp {
             columns: Some(metadata),
             ..self
