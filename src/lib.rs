@@ -271,7 +271,7 @@ mod tds;
 mod sql_browser;
 
 pub use client::{AuthMethod, Client, Config};
-pub use command::Command;
+pub use command::{Command, SqlTableDataRow, TableValueRow};
 pub(crate) use error::Error;
 pub use from_sql::{FromSql, FromSqlOwned};
 pub use query::Query;

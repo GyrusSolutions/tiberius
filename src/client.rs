@@ -14,7 +14,7 @@ pub use auth::*;
 pub use config::*;
 pub(crate) use connection::*;
 
-use crate::tds::codec::RpcValue;
+use crate::tds::codec::{MetaDataColumn, RpcValue};
 use crate::tds::stream::ReceivedToken;
 use crate::{
     result::ExecuteResult,
@@ -427,5 +427,31 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
         self.connection.send(PacketHeader::rpc(id), req).await?;
 
         Ok(())
+    }
+
+    pub(crate) async fn query_run_for_metadata<'a, 'b>(
+        &'a mut self,
+        query: String,
+    ) -> crate::Result<Option<Vec<MetaDataColumn<'b>>>> {
+        self.connection.flush_stream().await?;
+
+        let req = BatchRequest::new(query, self.connection.context().transaction_descriptor());
+
+        let id = self.connection.context_mut().next_packet_id();
+        self.connection.send(PacketHeader::batch(id), req).await?;
+
+        let token_stream = TokenStream::new(&mut self.connection).try_unfold();
+
+        let columns = token_stream
+            .try_fold(None, |mut columns, token| async move {
+                if let ReceivedToken::NewResultset(metadata) = token {
+                    columns = Some(metadata.columns.clone());
+                };
+
+                Ok(columns)
+            })
+            .await?;
+
+        Ok(columns)
     }
 }

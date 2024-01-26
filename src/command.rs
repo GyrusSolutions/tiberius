@@ -4,7 +4,7 @@ use enumflags2::BitFlags;
 use futures_util::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    tds::codec::{RpcParam, RpcStatus::ByRefValue, RpcValue},
+    tds::codec::{RpcParam, RpcStatus::ByRefValue, RpcValue, TypeInfoTvp},
     Client, ColumnData, CommandResult, IntoSql,
 };
 
@@ -123,26 +123,37 @@ impl<'a> Command<'a> {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
-        client.connection.flush_stream().await?;
-
-        // still 1-to-1 till TVP are coming
-        let rpc_params = self
-            .params
-            .into_iter()
-            .map(|p| RpcParam {
+        let mut rpc_params = Vec::new();
+        for p in self.params.into_iter() {
+            let rpc_val = match p.data {
+                CommandParamData::Scalar(col) => RpcValue::Scalar(col),
+                CommandParamData::Table(t) => {
+                    let query = format!("DECLARE @P AS {};SELECT TOP 0 * FROM @P", t.db_type);
+                    let type_info_tvp = TypeInfoTvp::new(
+                        t.db_type,
+                        t.rows.into_iter().map(|r| r.col_data).collect(),
+                    );
+                    let cols_metadata = client.query_run_for_metadata(query).await?;
+                    RpcValue::Table(if let Some(cm) = cols_metadata {
+                        type_info_tvp.with_metadata(cm)
+                    } else {
+                        type_info_tvp
+                    })
+                }
+            };
+            let rpc_param = RpcParam {
                 name: p.name,
                 flags: if p.out {
                     BitFlags::from_flag(ByRefValue)
                 } else {
                     BitFlags::empty()
                 },
-                value: match p.data {
-                    CommandParamData::Scalar(col) => RpcValue::Scalar(col),
-                    CommandParamData::Table(_) => todo!(),
-                },
-            })
-            .collect();
+                value: rpc_val,
+            };
+            rpc_params.push(rpc_param);
+        }
 
+        client.connection.flush_stream().await?;
         client.rpc_run_command(self.name, rpc_params).await?;
 
         CommandResult::new(&mut client.connection).await

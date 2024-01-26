@@ -152,14 +152,14 @@ impl<'a> Encode<BytesMut> for RpcParam<'a> {
 
         match self.value {
             RpcValue::Scalar(value) => {
-                let mut dst_fi = BytesMutWithTypeInfo::new(dst);
-                value.encode(&mut dst_fi)?;
-
-                let dst: &mut [u8] = dst.borrow_mut();
-                dst[len_pos] = length;
+                let mut dst_ti = BytesMutWithTypeInfo::new(dst);
+                value.encode(&mut dst_ti)?;
             }
             RpcValue::Table(value) => value.encode(dst)?,
         }
+
+        let dst: &mut [u8] = dst.borrow_mut();
+        dst[len_pos] = length;
 
         Ok(())
     }
