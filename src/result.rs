@@ -141,7 +141,7 @@ impl<'a> CommandResult {
         let mut return_values = Vec::new();
 
         while let Some(token) = token_stream.try_next().await? {
-            match dbg!(token) {
+            match token {
                 ReceivedToken::ReturnStatus(status) => return_code = status,
                 ReceivedToken::ReturnValue(rv) => return_values.push(ReturnValue {
                     name: rv.param_name,

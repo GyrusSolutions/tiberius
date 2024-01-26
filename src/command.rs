@@ -10,7 +10,9 @@ use crate::{
 
 /// expected from a structure that represents a row, Derive macro to come
 pub trait TableValueRow<'a> {
+    /// TODO: document bind_fields
     fn bind_fields(&self, data_row: &mut SqlTableDataRow<'a>); // call data_row.add_field(val) for each field
+    /// TODO: document get_db_type
     fn get_db_type() -> &'static str; // "dbo.MyType", macro-generated
 }
 
@@ -65,15 +67,17 @@ pub struct SqlTableData<'a> {
 }
 
 #[derive(Debug)]
+/// TVP row binding public API
 pub struct SqlTableDataRow<'a> {
     col_data: Vec<ColumnData<'a>>,
 }
 impl<'a> SqlTableDataRow<'a> {
-    pub fn new() -> SqlTableDataRow<'a> {
+    fn new() -> SqlTableDataRow<'a> {
         SqlTableDataRow {
             col_data: Vec::new(),
         }
     }
+    /// Adds TVP field value to the row
     pub fn add_field(&mut self, data: impl IntoSql<'a> + 'a) {
         self.col_data.push(data.into_sql());
     }
@@ -128,12 +132,16 @@ impl<'a> Command<'a> {
             let rpc_val = match p.data {
                 CommandParamData::Scalar(col) => RpcValue::Scalar(col),
                 CommandParamData::Table(t) => {
-                    let query = format!("DECLARE @P AS {};SELECT TOP 0 * FROM @P", t.db_type);
                     let type_info_tvp = TypeInfoTvp::new(
                         t.db_type,
                         t.rows.into_iter().map(|r| r.col_data).collect(),
                     );
-                    let cols_metadata = client.query_run_for_metadata(query).await?;
+                    let cols_metadata = client
+                        .query_run_for_metadata(format!(
+                            "DECLARE @P AS {};SELECT TOP 0 * FROM @P",
+                            t.db_type
+                        ))
+                        .await?;
                     RpcValue::Table(if let Some(cm) = cols_metadata {
                         type_info_tvp.with_metadata(cm)
                     } else {
