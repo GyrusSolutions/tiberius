@@ -4,8 +4,11 @@ use enumflags2::BitFlags;
 use futures_util::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    tds::codec::{RpcParam, RpcStatus::ByRefValue, RpcValue, TypeInfoTvp},
-    Client, ColumnData, CommandResult, IntoSql,
+    tds::{
+        codec::{RpcParam, RpcStatus::ByRefValue, RpcValue, TypeInfoTvp},
+        stream::{TokenFilterStream, TokenStream},
+    },
+    Client, ColumnData, CommandResult, IntoSql, QueryStream,
 };
 
 /// expected from a structure that represents a row, Derive macro to come
@@ -127,8 +130,46 @@ impl<'a> Command<'a> {
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
+        let rpc_params = Command::build_rpc_params(self.params, client).await?;
+
+        client.connection.flush_stream().await?;
+        client.rpc_run_command(self.name, rpc_params).await?;
+
+        CommandResult::new(&mut client.connection).await
+    }
+
+    /// TODO: document query call
+    pub async fn exec_query<'b, S>(
+        self,
+        client: &'b mut Client<S>,
+    ) -> crate::Result<QueryStream<'b>>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send,
+    {
+        let rpc_params = Command::build_rpc_params(self.params, client).await?;
+
+        client.connection.flush_stream().await?;
+        client.rpc_run_command(self.name, rpc_params).await?;
+
+        let ts = TokenStream::new(&mut client.connection);
+        let tf = TokenFilterStream::new(ts.try_unfold(), &|t| {
+            dbg!(t);
+        });
+        let mut result = QueryStream::new(tf.try_unfold());
+        result.forward_to_metadata().await?;
+
+        Ok(result)
+    }
+
+    async fn build_rpc_params<'b, S>(
+        cmd_params: Vec<CommandParam<'a>>,
+        client: &'b mut Client<S>,
+    ) -> crate::Result<Vec<RpcParam<'a>>>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send,
+    {
         let mut rpc_params = Vec::new();
-        for p in self.params.into_iter() {
+        for p in cmd_params.into_iter() {
             let rpc_val = match p.data {
                 CommandParamData::Scalar(col) => RpcValue::Scalar(col),
                 CommandParamData::Table(t) => {
@@ -136,6 +177,7 @@ impl<'a> Command<'a> {
                         t.db_type,
                         t.rows.into_iter().map(|r| r.col_data).collect(),
                     );
+                    // it might make sense to expose some API for the caller so they could cache metadata
                     let cols_metadata = client
                         .query_run_for_metadata(format!(
                             "DECLARE @P AS {};SELECT TOP 0 * FROM @P",
@@ -160,10 +202,6 @@ impl<'a> Command<'a> {
             };
             rpc_params.push(rpc_param);
         }
-
-        client.connection.flush_stream().await?;
-        client.rpc_run_command(self.name, rpc_params).await?;
-
-        CommandResult::new(&mut client.connection).await
+        Ok(rpc_params)
     }
 }
