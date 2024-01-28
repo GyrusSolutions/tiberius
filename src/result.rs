@@ -2,8 +2,8 @@ pub use crate::tds::stream::{QueryItem, ResultMetadata};
 use crate::{
     client::Connection,
     error::Error,
-    tds::stream::{CommandReturnValue, CommandStream, ReceivedToken, TokenStream},
-    ColumnData, FromSql, Row,
+    tds::stream::{CommandReturnValue, ReceivedToken, TokenStream},
+    FromSql, Row,
 };
 use futures_util::io::{AsyncRead, AsyncWrite};
 use futures_util::stream::TryStreamExt;
@@ -157,5 +157,19 @@ impl<'a> CommandResult {
         let col_data = self.return_values.get(idx).unwrap();
 
         T::from_sql(&col_data.data)
+    }
+
+    /// TODO: document results accessor
+    pub fn to_query_result(&self, idx: usize) -> Option<&Vec<Row>> {
+        self.query_results.get(idx)
+    }
+}
+
+impl IntoIterator for CommandResult {
+    type Item = Vec<Row>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.query_results.into_iter()
     }
 }

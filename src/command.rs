@@ -8,7 +8,7 @@ use crate::{
         codec::{RpcParam, RpcStatus::ByRefValue, RpcValue, TypeInfoTvp},
         stream::{CommandStream, TokenStream},
     },
-    Client, ColumnData, CommandResult, IntoSql, QueryStream,
+    Client, ColumnData, IntoSql,
 };
 
 /// expected from a structure that represents a row, Derive macro to come
@@ -122,11 +122,8 @@ impl<'a> Command<'a> {
         });
     }
 
-    /// TODO: document non-query call
-    pub async fn exec_nonquery<'b, S>(
-        self,
-        client: &'b mut Client<S>,
-    ) -> crate::Result<CommandResult>
+    /// TODO: document query call
+    pub async fn exec<'b, S>(self, client: &'b mut Client<S>) -> crate::Result<CommandStream<'b>>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
     {
@@ -137,26 +134,6 @@ impl<'a> Command<'a> {
 
         let ts = TokenStream::new(&mut client.connection);
         let result = CommandStream::new(ts.try_unfold());
-
-        result.into_command_result().await
-    }
-
-    /// TODO: document query call
-    pub async fn exec_query<'b, S>(
-        self,
-        client: &'b mut Client<S>,
-    ) -> crate::Result<QueryStream<'b>>
-    where
-        S: AsyncRead + AsyncWrite + Unpin + Send,
-    {
-        let rpc_params = Command::build_rpc_params(self.params, client).await?;
-
-        client.connection.flush_stream().await?;
-        client.rpc_run_command(self.name, rpc_params).await?;
-
-        let ts = TokenStream::new(&mut client.connection);
-        let mut result = QueryStream::new(ts.try_unfold());
-        result.forward_to_metadata().await?;
 
         Ok(result)
     }
