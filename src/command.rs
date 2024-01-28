@@ -6,7 +6,7 @@ use futures_util::io::{AsyncRead, AsyncWrite};
 use crate::{
     tds::{
         codec::{RpcParam, RpcStatus::ByRefValue, RpcValue, TypeInfoTvp},
-        stream::{TokenFilterStream, TokenStream},
+        stream::{CommandStream, TokenStream},
     },
     Client, ColumnData, CommandResult, IntoSql, QueryStream,
 };
@@ -135,7 +135,10 @@ impl<'a> Command<'a> {
         client.connection.flush_stream().await?;
         client.rpc_run_command(self.name, rpc_params).await?;
 
-        CommandResult::new(&mut client.connection).await
+        let ts = TokenStream::new(&mut client.connection);
+        let result = CommandStream::new(ts.try_unfold());
+
+        result.into_command_result().await
     }
 
     /// TODO: document query call
@@ -152,10 +155,7 @@ impl<'a> Command<'a> {
         client.rpc_run_command(self.name, rpc_params).await?;
 
         let ts = TokenStream::new(&mut client.connection);
-        let tf = TokenFilterStream::new(ts.try_unfold(), &|t| {
-            dbg!(t);
-        });
-        let mut result = QueryStream::new(tf.try_unfold());
+        let mut result = QueryStream::new(ts.try_unfold());
         result.forward_to_metadata().await?;
 
         Ok(result)
