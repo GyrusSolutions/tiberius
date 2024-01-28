@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+pub use tvp_macro;
 
 use enumflags2::BitFlags;
 use futures_util::io::{AsyncRead, AsyncWrite};
@@ -10,6 +11,9 @@ use crate::{
     },
     Client, ColumnData, IntoSql,
 };
+
+#[doc(inline)]
+pub use tvp_macro::TableValueRow;
 
 /// expected from a structure that represents a row, Derive macro to come
 pub trait TableValueRow<'a> {
