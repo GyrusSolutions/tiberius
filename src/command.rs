@@ -114,6 +114,7 @@ impl<'a> Command<'a> {
     }
 
     /// TODO: document bind table param val
+    #[cfg(feature = "tds73")]
     pub fn bind_table(&mut self, name: impl Into<Cow<'a, str>>, data: impl TableValue<'a> + 'a) {
         self.params.push(CommandParam {
             name: name.into(),
