@@ -78,7 +78,7 @@ impl<'a> CommandStream<'a> {
         })
     }
 
-    /// Convert the stream into a stream of rows, skipping metadata items.
+    /// Convert the stream into a stream of rows, skipping all other items.
     pub fn into_row_stream(self) -> BoxStream<'a, crate::Result<Row>> {
         let s = self.try_filter_map(|item| async {
             match item {
@@ -105,8 +105,11 @@ pub enum CommandItem {
     Row(Row),
     /// Information of the upcoming row data.
     Metadata(ResultMetadata),
+    /// Return Status from the server
     ReturnStatus(u32),
+    /// Return Value, matching OUT parameter(s)
     ReturnValue(CommandReturnValue),
+    /// Rows Affected, for one of the statements ran in server
     RowsAffected(u64),
 }
 

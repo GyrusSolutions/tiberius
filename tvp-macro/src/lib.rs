@@ -15,14 +15,12 @@ macro_rules! sp_quote {
 mod attr;
 mod table_value_param;
 
-/// This macro generates an ad-hoc implementation of the `TableValueRow` trait.
-/// # Attributes
-/// * `colname`, comes as `#[colname = "DbColName"]` the value supposed to match SQL column name in the TVP type.
+/// This macro generates a trivial implementation of the `TableValueRow` trait.
 /// # Applications
 /// Could be applied to structures that represent rows of a Table Value params.
 /// # Example
 /// ```rust,ignore
-/// # use dal_base::sql::*;
+/// # use tiberius::*;
 /// #[derive(TableValueRow)]
 /// pub struct SomeGeoList {
 ///   #[colname = "SomeID"]

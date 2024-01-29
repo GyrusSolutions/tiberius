@@ -53,11 +53,11 @@ fn table_value_param_impl(
         .map(|f| FieldExt::new(f))
         .collect();
     let col_names: Vec<_> = fields.iter().map(|f| f.get_col_name()).collect();
-    let _col_names = sp_quote!( #(#col_names),* );
+    let _col_names = sp_quote!( #(#col_names),* ); // this comes later, TVPs for queries would need col names, while SPs do not
     let col_binds: Vec<_> = fields.iter().map(|f| f.as_bind()).collect();
     let col_binds = sp_quote!( #(#col_binds);*);
     sp_quote! {
-        impl #lt_impl ::dal_base::sql::TableValueRow #lt_impl for #name #lt_struct {
+        impl #lt_impl ::tiberius::TableValueRow #lt_impl for #name #lt_struct {
             fn get_db_type() -> &'static str {
                 stringify!{ #name }
             }
@@ -125,7 +125,7 @@ mod tests {
             syn::Data::Union(_) => panic!("doesn't work with unions"),
         };
         let etalon = sp_quote!(
-            impl<'query> ::dal_base::sql::TableValueRow<'query> for SomeGeoList {
+            impl<'query> ::tiberius::TableValueRow<'query> for SomeGeoList {
                 fn get_db_type() -> &'static str {
                     stringify! { SomeGeoList }
                 }
@@ -160,7 +160,7 @@ mod tests {
         };
 
         let etalon = sp_quote!(
-            impl<'e> ::dal_base::sql::TableValueRow<'e> for AnotherGeoList<'e> {
+            impl<'e> ::tiberius::TableValueRow<'e> for AnotherGeoList<'e> {
                 fn get_db_type() -> &'static str {
                     stringify! { AnotherGeoList }
                 }

@@ -15,14 +15,15 @@ use crate::{
 #[doc(inline)]
 pub use tvp_macro::TableValueRow;
 
-/// expected from a structure that represents a row, Derive macro to come
+/// Any structure that represents a row in a Table Value parameter must implement this trait
 pub trait TableValueRow<'a> {
-    /// TODO: document bind_fields
+    /// Bind row field values, called by `Command` instance before making the call to the server
     fn bind_fields(&self, data_row: &mut SqlTableDataRow<'a>); // call data_row.add_field(val) for each field
-    /// TODO: document get_db_type
-    fn get_db_type() -> &'static str; // "dbo.MyType", macro-generated
+    /// Database type name that represents this TVP, like `dbo.MyType`.
+    fn get_db_type() -> &'static str;
 }
 
+/// Implemented as generic for `IntoIterator<Item = TableValueRow>`
 pub trait TableValue<'a> {
     fn into_sql(self) -> SqlTableData<'a>;
 }
@@ -47,7 +48,7 @@ where
     }
 }
 
-/// temporary encapsulation for the experimental stuff
+/// Remote command (Stored Procedure of UDF) with bound parameters
 #[derive(Debug)]
 pub struct Command<'a> {
     name: Cow<'a, str>,
@@ -84,14 +85,15 @@ impl<'a> SqlTableDataRow<'a> {
             col_data: Vec::new(),
         }
     }
-    /// Adds TVP field value to the row
+    /// Adds TVP field value to the row. Must be called for each column.
+    /// The values are sent to the server in the same order as these calls.
     pub fn add_field(&mut self, data: impl IntoSql<'a> + 'a) {
         self.col_data.push(data.into_sql());
     }
 }
 
 impl<'a> Command<'a> {
-    /// TODO: document new Command instance, proc name must be provided
+    /// Constructs a new command object with given name.
     pub fn new(proc_name: impl Into<Cow<'a, str>>) -> Self {
         Self {
             name: proc_name.into(),
@@ -99,7 +101,7 @@ impl<'a> Command<'a> {
         }
     }
 
-    /// TODO: document bind scalar param val
+    /// Binds scalar parameter with the given name to the command.
     pub fn bind_param(&mut self, name: impl Into<Cow<'a, str>>, data: impl IntoSql<'a> + 'a) {
         self.params.push(CommandParam {
             name: name.into(),
@@ -108,7 +110,8 @@ impl<'a> Command<'a> {
         });
     }
 
-    /// TODO: document bind scalar param val
+    /// Binds by-ref (OUT) scalar parameter to the command.
+    /// Returned value can be found by the same name in the returned values collection.
     pub fn bind_out_param(&mut self, name: impl Into<Cow<'a, str>>, data: impl IntoSql<'a> + 'a) {
         self.params.push(CommandParam {
             name: name.into(),
@@ -117,7 +120,50 @@ impl<'a> Command<'a> {
         });
     }
 
-    /// TODO: document bind table param val
+    /// Binds table-valued parameter to the command.
+    /// Provided argument must implement `TableValue` trait.
+    ///
+    /// Example
+    ///
+    /// ```no_run
+    /// # use tiberius::{numeric::Numeric, Client, Command, TableValueRow};
+    /// # use tokio_util::compat::TokioAsyncWriteCompatExt;
+    /// # use std::env;
+    /// #[derive(TableValueRow)]
+    /// struct SomeGeoList {
+    ///     eid: i32,
+    ///     lat: Numeric,
+    ///     lon: Numeric,
+    /// }
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let c_str = env::var("TIBERIUS_TEST_CONNECTION_STRING").unwrap_or(
+    /// #     "server=tcp:localhost,1433;integratedSecurity=true;TrustServerCertificate=true".to_owned(),
+    /// # );
+    /// # let config = Config::from_ado_string(&c_str)?;
+    /// # let tcp = tokio::net::TcpStream::connect(config.get_addr()).await?;
+    /// # tcp.set_nodelay(true)?;
+    /// # let mut client = tiberius::Client::connect(config, tcp.compat_write()).await?;
+    ///
+    /// let r1 = SomeGeoList {
+    ///     eid: 1,
+    ///     lat: Numeric::new_with_scale(10, 6),
+    ///     lon: Numeric::new_with_scale(14, 6),
+    /// };
+    /// let r2 = SomeGeoList {
+    ///     eid: 4,
+    ///     lat: Numeric::new_with_scale(101, 6),
+    ///     lon: Numeric::new_with_scale(142, 6),
+    ///     };
+    ///
+    /// let tbl = vec![r1, r2];
+    ///
+    /// let mut cmd = Command::new("dbo.usp_TheGeoProcedure");
+    ///
+    /// cmd.bind_table("@table", tbl);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     #[cfg(feature = "tds73")]
     pub fn bind_table(&mut self, name: impl Into<Cow<'a, str>>, data: impl TableValue<'a> + 'a) {
         self.params.push(CommandParam {
@@ -127,7 +173,37 @@ impl<'a> Command<'a> {
         });
     }
 
-    /// TODO: document query call
+    /// Executes the `Command` in the SQL Server, returning `CommandStream` that
+    /// can be collected into `CommandResult` for convinience.
+    ///
+    /// Example
+    ///
+    /// ```no_run
+    /// # use tiberius::{numeric::Numeric, Client, Command, TableValueRow};
+    /// # use tokio_util::compat::TokioAsyncWriteCompatExt;
+    /// # use std::env;
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let c_str = env::var("TIBERIUS_TEST_CONNECTION_STRING").unwrap_or(
+    /// #     "server=tcp:localhost,1433;integratedSecurity=true;TrustServerCertificate=true".to_owned(),
+    /// # );
+    /// # let config = Config::from_ado_string(&c_str)?;
+    /// # let tcp = tokio::net::TcpStream::connect(config.get_addr()).await?;
+    /// # tcp.set_nodelay(true)?;
+    /// # let mut client = tiberius::Client::connect(config, tcp.compat_write()).await?;
+    /// let mut cmd = Command::new("dbo.usp_SomeStoredProc");
+    ///
+    /// cmd.bind_param("@foo", 34i32);
+    /// cmd.bind_out_param("@bar", "bar");
+    /// let res = cmd.exec(&mut client).await?.into_command_result().await?;
+    ///
+    /// let rv: Option<String> = res.try_return_value("@bar")?;
+    /// let rc = res.return_code();
+    ///
+    /// println!("And we got bar: {:#?}, return_code: {}", rv, rc);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub async fn exec<'b, S>(self, client: &'b mut Client<S>) -> crate::Result<CommandStream<'b>>
     where
         S: AsyncRead + AsyncWrite + Unpin + Send,
