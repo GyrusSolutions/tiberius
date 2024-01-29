@@ -12,6 +12,68 @@ use std::{
     task::{self, Poll},
 };
 
+/// A set of `Streams` of [`CommandItem`] values, which can be either result
+/// metadata, row, return status, return value, etc.
+///
+/// # Example
+///
+/// ```no_run
+/// # use futures::TryStreamExt;
+/// # use tiberius::{numeric::Numeric, Client, Command};
+/// # use tokio::net::TcpStream;
+/// # use tokio_util::compat::TokioAsyncWriteCompatExt;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let c_str = env::var("TIBERIUS_TEST_CONNECTION_STRING").unwrap_or(
+/// #     "server=tcp:localhost,1433;integratedSecurity=true;TrustServerCertificate=true".to_owned(),
+/// # );
+/// # let config = Config::from_ado_string(&c_str)?;
+/// # let tcp = tokio::net::TcpStream::connect(config.get_addr()).await?;
+/// # tcp.set_nodelay(true)?;
+/// # let mut client = tiberius::Client::connect(config, tcp.compat_write()).await?;
+/// let mut cmd = Command::new("dbo.usp_SomeStoredProc");
+///
+/// cmd.bind_param("@foo", 34i32);
+/// cmd.bind_param("@zoo", "the zoo string prm");
+/// cmd.bind_out_param("@bar", "bar");
+/// let stream = cmd.exec(&mut client).await?;
+///
+/// while let Some(item) = stream.try_next().await? {
+///     match item {
+///         // our first item is the column data always
+///         CommandItem::Metadata(meta) if meta.result_index() == 0 => {
+///             // the first result column info can be handled here
+///         }
+///         // ... and from there on from 0..N rows
+///         CommandItem::Row(row) if row.result_index() == 0 => {
+///             let var = row.get(0);
+///         }
+///         // the second result set returns first another metadata item
+///         CommandItem::Metadata(meta) => {
+///             // .. handling
+///         }
+///         // ...and, again, we get rows from the second resultset
+///         CommandItem::Row(row) => {
+///             let var = row.get(0);
+///         }
+///         // check return status (mandatory, returned always)
+///         CommandItem::ReturnStatus(rs) => {
+///             // .... do something
+///         }
+///         // check return status (mandatory, returned always)
+///         CommandItem::ReturnValue(rv) => {
+///             // .... do something, like push to a collection
+///         }
+///         // get affected row count
+///         CommandItem::RowsAffected(ra) => {
+///             // .... do something, like push to a collection
+///         }
+///     }
+/// }
+/// # Ok(())
+/// # }
+/// ```
+///
 pub struct CommandStream<'a> {
     token_stream: Peekable<BoxStream<'a, crate::Result<ReceivedToken>>>,
     columns: Option<Arc<Vec<Column>>>,
@@ -149,6 +211,30 @@ impl CommandItem {
     pub fn into_row(self) -> Option<Row> {
         match self {
             CommandItem::Row(row) => Some(row),
+            _ => None,
+        }
+    }
+
+    /// Returns the return status, if the item if on a correct variant.
+    pub fn as_return_status(&self) -> Option<u32> {
+        match self {
+            CommandItem::ReturnStatus(rs) => Some(*rs),
+            _ => None,
+        }
+    }
+
+    /// Returns the return value, if the item if on a correct variant.
+    pub fn as_return_value(&self) -> Option<&CommandReturnValue> {
+        match self {
+            CommandItem::ReturnValue(rv) => Some(rv),
+            _ => None,
+        }
+    }
+
+    /// Returns the return value, if the item if on a correct variant.
+    pub fn into_return_value(self) -> Option<CommandReturnValue> {
+        match self {
+            CommandItem::ReturnValue(rv) => Some(rv),
             _ => None,
         }
     }

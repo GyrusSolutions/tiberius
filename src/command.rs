@@ -59,7 +59,7 @@ pub struct Command<'a> {
 struct CommandParam<'a> {
     name: Cow<'a, str>,
     out: bool,
-    data: CommandParamData<'a>, //ColumnData<'a>,
+    data: CommandParamData<'a>,
 }
 
 #[derive(Debug)]
@@ -179,7 +179,7 @@ impl<'a> Command<'a> {
     /// Example
     ///
     /// ```no_run
-    /// # use tiberius::{numeric::Numeric, Client, Command, TableValueRow};
+    /// # use tiberius::{numeric::Numeric, Client, Command};
     /// # use tokio_util::compat::TokioAsyncWriteCompatExt;
     /// # use std::env;
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
